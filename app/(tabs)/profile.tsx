@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams } from 'expo-router';
+import { type UserRole } from '../../services/authService';
 
 const { width } = Dimensions.get('window');
 
@@ -45,6 +47,8 @@ const SETTINGS = [
 ];
 
 export default function ProfileScreen() {
+  const params = useLocalSearchParams<{ role?: string }>();
+  const role = (params.role as UserRole | undefined) ?? 'user';
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'settings'>('profile');
 
@@ -62,6 +66,9 @@ export default function ProfileScreen() {
             <View style={styles.userInfo}>
               <Text style={styles.userName}>{PROFILE.name}</Text>
               <Text style={styles.userEmail}>{PROFILE.email}</Text>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleBadgeText}>{role.toUpperCase()}</Text>
+              </View>
               <View style={styles.faceShapeTag}>
                 <Ionicons name="scan-outline" size={12} color="#C9A96E" style={{ marginRight: 4 }} />
                 <Text style={styles.faceShapeTagText}>{PROFILE.faceShape} Face · {PROFILE.hairType} Hair</Text>
@@ -260,6 +267,8 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1 },
   userName: { fontSize: 20, fontWeight: '800', color: '#F5F0E8', marginBottom: 2 },
   userEmail: { fontSize: 13, color: '#888', marginBottom: 6 },
+  roleBadge: { alignSelf: 'flex-start', backgroundColor: '#2A1F10', borderWidth: 1, borderColor: '#C9A96E', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, marginBottom: 6 },
+  roleBadgeText: { fontSize: 10, fontWeight: '700', color: '#C9A96E', letterSpacing: 1 },
   faceShapeTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2A1F10', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
   faceShapeTagText: { fontSize: 11, color: '#C9A96E', fontWeight: '600' },
   editBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2A1F10', justifyContent: 'center', alignItems: 'center' },

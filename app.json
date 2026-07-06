@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "facefitttt",
-    "slug": "facefitttt",
+    "name": "Facefit",
+    "slug": "Facefit",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "facefitttt",
+    "scheme": "Facefit",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {

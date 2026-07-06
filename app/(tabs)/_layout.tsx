@@ -32,6 +32,27 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="dashboard-user"
+        options={{
+          title: 'User',
+          tabBarButton: () => null,
+        }}
+      />
+      <Tabs.Screen
+        name="dashboard-admin"
+        options={{
+          title: 'Admin',
+          tabBarButton: () => null,
+        }}
+      />
+      <Tabs.Screen
+        name="dashboard-hairstylist"
+        options={{
+          title: 'Hairstylist',
+          tabBarButton: () => null,
+        }}
+      />
+      <Tabs.Screen
         name="recommendations"
         options={{
           title: 'Styles',
