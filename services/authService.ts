@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
 export type UserRole = 'admin' | 'user' | 'hairstylist';
 
@@ -10,12 +11,16 @@ export type AuthUser = {
   role: UserRole;
 };
 
-const API_BASE_URL = (() => {
-  if (Platform.OS === 'android') {
-    return 'http://10.0.2.2/facefit';
+function getApiHost() {
+  const debuggerHost = Constants.manifest?.debuggerHost as string | undefined;
+  if (debuggerHost) {
+    return debuggerHost.split(':')[0];
   }
-  return 'http://localhost/facefit';
-})();
+
+  return '192.168.50.164';
+}
+
+const API_BASE_URL = `http://${getApiHost()}/facefit`;
 
 function parseApiResponse(response: Response) {
   return response.text().then((text) => {
@@ -41,16 +46,21 @@ export function resolveRole(username: string): UserRole {
   return 'user';
 }
 
+function buildFormBody(params: Record<string, string>) {
+  return Object.entries(params)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+}
+
 export async function loginUser(username: string, password: string) {
-  const formData = new FormData();
-  formData.append('username', username);
-  formData.append('password', password);
+  const body = buildFormBody({ username, password });
 
   const response = await fetch(`${API_BASE_URL}/login.php`, {
     method: 'POST',
-    body: formData,
+    body,
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
     },
   });
 
@@ -64,17 +74,14 @@ export async function loginUser(username: string, password: string) {
 }
 
 export async function registerUser(fullName: string, email: string, username: string, password: string) {
-  const formData = new FormData();
-  formData.append('full_name', fullName);
-  formData.append('email', email);
-  formData.append('username', username);
-  formData.append('password', password);
+  const body = buildFormBody({ full_name: fullName, email, username, password });
 
   const response = await fetch(`${API_BASE_URL}/register.php`, {
     method: 'POST',
-    body: formData,
+    body,
     headers: {
       Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
     },
   });
 
