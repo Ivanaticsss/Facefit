@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,114 +7,86 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { getHaircutRecommendations, getSalonsForHaircut, type HaircutRecommendation, type Salon } from '../../services/facefitService';
 
 const { width } = Dimensions.get('window');
 
-const CATEGORIES = ['All', 'Short', 'Medium', 'Long', 'Curly', 'Trending'];
-
-const HAIRSTYLES = [
-  {
-    id: '1',
-    name: 'Classic Taper Fade',
-    category: 'Short',
-    faceShapes: ['Oval', 'Square'],
-    match: 96,
-    trending: true,
-    desc: 'Clean, versatile cut with gradual fade on sides. Ideal for professional settings.',
-    maintenance: 'Low',
-    length: 'Short',
-    icon: '💈',
-    tags: ['Professional', 'Clean', 'Classic'],
-  },
-  {
-    id: '2',
-    name: 'Textured Quiff',
-    category: 'Medium',
-    faceShapes: ['Oval', 'Round'],
-    match: 88,
-    trending: true,
-    desc: 'Voluminous top with textured finish. Adds height to round faces.',
-    maintenance: 'Medium',
-    length: 'Medium',
-    icon: '✨',
-    tags: ['Trendy', 'Volume', 'Modern'],
-  },
-  {
-    id: '3',
-    name: 'Side Part Undercut',
-    category: 'Medium',
-    faceShapes: ['Oval', 'Heart'],
-    match: 85,
-    trending: false,
-    desc: 'Sharp side part with undercut. A timeless gentleman\'s look.',
-    maintenance: 'Medium',
-    length: 'Medium',
-    icon: '🎩',
-    tags: ['Formal', 'Sharp', 'Elegant'],
-  },
-  {
-    id: '4',
-    name: 'French Crop',
-    category: 'Short',
-    faceShapes: ['Round', 'Square'],
-    match: 82,
-    trending: true,
-    desc: 'Short crop with fringe at the forehead. Suits most face shapes.',
-    maintenance: 'Low',
-    length: 'Short',
-    icon: '🗼',
-    tags: ['Minimal', 'Urban', 'Easy'],
-  },
-  {
-    id: '5',
-    name: 'Curtain Bangs',
-    category: 'Medium',
-    faceShapes: ['Heart', 'Oval'],
-    match: 79,
-    trending: true,
-    desc: 'Parted bangs that frame the face naturally. Very popular right now.',
-    maintenance: 'Medium',
-    length: 'Medium',
-    icon: '🎭',
-    tags: ['Retro', 'Trendy', 'Soft'],
-  },
-  {
-    id: '6',
-    name: 'Buzz Cut',
-    category: 'Short',
-    faceShapes: ['Oval', 'Square', 'Round'],
-    match: 75,
-    trending: false,
-    desc: 'Ultra-short all over. Bold and confident with minimal upkeep.',
-    maintenance: 'Very Low',
-    length: 'Short',
-    icon: '⚡',
-    tags: ['Bold', 'Low Maintenance', 'Strong'],
-  },
-];
-
-const FACE_SHAPE_INFO = {
-  shape: 'Oval',
-  desc: 'Balanced proportions make oval faces the most versatile — almost any hairstyle works.',
-  compatible: ['Classic Taper Fade', 'Textured Quiff', 'Side Part Undercut'],
-};
+const CATEGORIES = ['All', 'Classic', 'Fade', 'Modern', 'Trending', 'Short'];
 
 export default function RecommendationsScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams();
   const [activeCategory, setActiveCategory] = useState('All');
   const [savedStyles, setSavedStyles] = useState<string[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [stylesData, setStylesData] = useState<HaircutRecommendation[]>([]);
+  const [salons, setSalons] = useState<Salon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedHaircut, setSelectedHaircut] = useState<string | null>(null);
 
-  const filtered = HAIRSTYLES.filter(
-    (h) => activeCategory === 'All' || h.category === activeCategory || (activeCategory === 'Trending' && h.trending)
+  const parsedResult = useMemo(() => {
+    if (typeof params.result === 'string') {
+      try {
+        return JSON.parse(params.result);
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }, [params.result]);
+
+  const faceShape = parsedResult?.faceShape || 'Oval';
+  const hairType = parsedResult?.hairType || 'Straight';
+  const gender = parsedResult?.gender || 'Unisex';
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const result = await getHaircutRecommendations(faceShape, hairType, gender);
+        setStylesData(result.recommendations || []);
+
+        const initialHaircut = typeof params.selectedHaircut === 'string' ? params.selectedHaircut : result.recommendations?.[0]?.name;
+        if (initialHaircut) {
+          setSelectedHaircut(initialHaircut);
+          const salonList = await getSalonsForHaircut(initialHaircut);
+          setSalons(salonList);
+        }
+      } catch (error) {
+        console.error(error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
+  }, [faceShape, hairType, gender, params.selectedHaircut]);
+
+  const filtered = useMemo(() =>
+    stylesData.filter((h) => activeCategory === 'All' || h.category === activeCategory || (activeCategory === 'Trending' && h.matchPercentage >= 90)),
+    [activeCategory, stylesData]
   );
 
-  const toggleSave = (id: string) => {
+  const toggleSave = (id: number) => {
     setSavedStyles((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
+      prev.includes(String(id)) ? prev.filter((s) => s !== String(id)) : [...prev, String(id)]
     );
+  };
+
+  const openSalons = async (haircutName: string) => {
+    setSelectedHaircut(haircutName);
+    setLoading(true);
+    try {
+      const salonList = await getSalonsForHaircut(haircutName);
+      setSalons(salonList);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getMatchColor = (match: number) => {
@@ -134,7 +106,6 @@ export default function RecommendationsScreen() {
           <Text style={styles.screenTitle}>Your Styles</Text>
         </View>
 
-        {/* Face Shape Banner */}
         <LinearGradient
           colors={['#2A1F10', '#1A1310']}
           style={styles.faceBanner}
@@ -143,14 +114,14 @@ export default function RecommendationsScreen() {
         >
           <View style={styles.faceBannerLeft}>
             <Text style={styles.faceBannerLabel}>YOUR FACE SHAPE</Text>
-            <Text style={styles.faceBannerShape}>{FACE_SHAPE_INFO.shape}</Text>
-            <Text style={styles.faceBannerDesc}>{FACE_SHAPE_INFO.desc}</Text>
+            <Text style={styles.faceBannerShape}>Oval</Text>
+            <Text style={styles.faceBannerDesc}>Balanced proportions make oval faces highly versatile, so the recommendations below are ranked by how well each haircut fits your features.</Text>
           </View>
           <View style={styles.faceBannerRight}>
             <View style={styles.faceShapeCircle}>
               <Ionicons name="person" size={36} color="#C9A96E" />
             </View>
-            <Text style={styles.faceBannerMatch}>{HAIRSTYLES.filter((h) => h.faceShapes.includes('Oval')).length} matches</Text>
+            <Text style={styles.faceBannerMatch}>{stylesData.length} matches</Text>
           </View>
         </LinearGradient>
 
@@ -174,7 +145,6 @@ export default function RecommendationsScreen() {
           ))}
         </ScrollView>
 
-        {/* Results Count */}
         <View style={styles.resultsRow}>
           <Text style={styles.resultsCount}>{filtered.length} hairstyles</Text>
           <TouchableOpacity style={styles.filterBtn}>
@@ -183,44 +153,48 @@ export default function RecommendationsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Hairstyle Cards */}
-        <View style={styles.cardsContainer}>
-          {filtered.map((style) => {
-            const isExpanded = expandedId === style.id;
-            const isSaved = savedStyles.includes(style.id);
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color="#C9A96E" />
+            <Text style={styles.loadingText}>Loading recommendations from your database…</Text>
+          </View>
+        ) : (
+          <View style={styles.cardsContainer}>
+            {filtered.map((style) => {
+              const isExpanded = expandedId === style.id;
+              const isSaved = savedStyles.includes(String(style.id));
 
-            return (
-              <TouchableOpacity
-                key={style.id}
-                style={styles.styleCard}
-                onPress={() => setExpandedId(isExpanded ? null : style.id)}
-                activeOpacity={0.9}
-              >
+              return (
+                <TouchableOpacity
+                  key={style.id}
+                  style={styles.styleCard}
+                  onPress={() => setExpandedId(isExpanded ? null : style.id)}
+                  activeOpacity={0.9}
+                >
                 {/* Card Header */}
                 <View style={styles.cardHeader}>
                   <View style={styles.cardIconBox}>
-                    <Text style={{ fontSize: 28 }}>{style.icon}</Text>
+                    <Ionicons name="cut-outline" size={24} color="#C9A96E" />
                   </View>
                   <View style={styles.cardMeta}>
                     <View style={styles.cardTitleRow}>
                       <Text style={styles.cardName}>{style.name}</Text>
-                      {style.trending && (
-                        <View style={styles.trendBadge}>
-                          <Text style={styles.trendText}>HOT</Text>
-                        </View>
-                      )}
+                      <View style={styles.trendBadge}>
+                        <Text style={styles.trendText}>HOT</Text>
+                      </View>
                     </View>
                     <View style={styles.cardTags}>
-                      {style.tags.map((tag) => (
-                        <View key={tag} style={styles.tagPill}>
-                          <Text style={styles.tagText}>{tag}</Text>
-                        </View>
-                      ))}
+                      <View style={styles.tagPill}>
+                        <Text style={styles.tagText}>{style.category}</Text>
+                      </View>
+                      <View style={styles.tagPill}>
+                        <Text style={styles.tagText}>{style.gender}</Text>
+                      </View>
                     </View>
                   </View>
                   <View style={styles.cardRight}>
-                    <View style={[styles.matchCircle, { borderColor: getMatchColor(style.match) }]}>
-                      <Text style={[styles.matchPct, { color: getMatchColor(style.match) }]}>{style.match}%</Text>
+                    <View style={[styles.matchCircle, { borderColor: getMatchColor(style.matchPercentage) }]}>
+                      <Text style={[styles.matchPct, { color: getMatchColor(style.matchPercentage) }]}>{style.matchPercentage}%</Text>
                     </View>
                     <Text style={styles.matchLabel}>match</Text>
                   </View>
@@ -230,26 +204,24 @@ export default function RecommendationsScreen() {
                 {isExpanded && (
                   <View style={styles.cardExpanded}>
                     <View style={styles.divider} />
-                    <Text style={styles.cardDesc}>{style.desc}</Text>
+                    <Text style={styles.cardDesc}>{style.description}</Text>
                     <View style={styles.detailsRow}>
                       <View style={styles.detailItem}>
                         <Ionicons name="time-outline" size={14} color="#888" />
                         <Text style={styles.detailLabel}> Maintenance</Text>
-                        <Text style={styles.detailValue}>{style.maintenance}</Text>
+                        <Text style={styles.detailValue}>₱{style.price}</Text>
                       </View>
                       <View style={styles.detailItem}>
                         <Ionicons name="resize-outline" size={14} color="#888" />
                         <Text style={styles.detailLabel}> Length</Text>
-                        <Text style={styles.detailValue}>{style.length}</Text>
+                        <Text style={styles.detailValue}>{style.durationMinutes} min</Text>
                       </View>
                     </View>
                     <View style={styles.faceShapeRow}>
                       <Text style={styles.detailLabel}>Best for: </Text>
-                      {style.faceShapes.map((fs) => (
-                        <View key={fs} style={styles.faceShapePill}>
-                          <Text style={styles.faceShapeText}>{fs}</Text>
-                        </View>
-                      ))}
+                      <View style={styles.faceShapePill}>
+                        <Text style={styles.faceShapeText}>{style.reason}</Text>
+                      </View>
                     </View>
                     <View style={styles.cardActions}>
                       <TouchableOpacity
@@ -265,7 +237,7 @@ export default function RecommendationsScreen() {
                           {isSaved ? 'Saved' : 'Save Style'}
                         </Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.bookBtn}>
+                      <TouchableOpacity style={styles.bookBtn} onPress={() => openSalons(style.name)}>
                         <Ionicons name="calendar-outline" size={16} color="#0F0F0F" style={{ marginRight: 6 }} />
                         <Text style={styles.bookBtnText}>Book Now</Text>
                       </TouchableOpacity>
@@ -284,7 +256,29 @@ export default function RecommendationsScreen() {
               </TouchableOpacity>
             );
           })}
-        </View>
+          </View>
+        )}
+
+        {selectedHaircut && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Salons for {selectedHaircut}</Text>
+            {salons.length === 0 && !loading && <Text style={styles.emptyText}>No salons found for this haircut yet.</Text>}
+            {salons.map((salon) => (
+              <View key={salon.id} style={styles.salonCard}>
+                <View style={styles.salonTopRow}>
+                  <Text style={styles.salonName}>{salon.name}</Text>
+                  <View style={styles.ratingBadge}>
+                    <Ionicons name="star" size={12} color="#C9A96E" />
+                    <Text style={styles.ratingText}>{salon.rating ?? 'New'}</Text>
+                  </View>
+                </View>
+                <Text style={styles.salonMeta}>{salon.location || 'Location not listed'}</Text>
+                <Text style={styles.salonMeta}>{salon.phone || 'No phone listed'}</Text>
+                <Text style={styles.salonDesc}>{salon.description || 'Salon details coming soon.'}</Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         <View style={{ height: 20 }} />
       </ScrollView>
@@ -361,4 +355,16 @@ const styles = StyleSheet.create({
 
   // Chevron
   chevronRow: { alignItems: 'center', marginTop: 8 },
+  loadingBox: { paddingVertical: 24, alignItems: 'center' },
+  loadingText: { marginTop: 10, color: '#888', fontSize: 13 },
+  section: { paddingHorizontal: 20, marginTop: 18 },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#F5F0E8', marginBottom: 12 },
+  salonCard: { backgroundColor: '#1A1A1A', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#2A2A2A', marginBottom: 10 },
+  salonTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  salonName: { fontSize: 14, fontWeight: '700', color: '#F5F0E8', flex: 1, marginRight: 8 },
+  ratingBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2A1F10', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+  ratingText: { fontSize: 11, color: '#C9A96E', fontWeight: '700', marginLeft: 4 },
+  salonMeta: { fontSize: 12, color: '#AAA', marginBottom: 2 },
+  salonDesc: { fontSize: 12, color: '#888', marginTop: 6, lineHeight: 16 },
+  emptyText: { fontSize: 12, color: '#888' },
 });

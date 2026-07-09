@@ -8,11 +8,13 @@ import {
   ScrollView,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { Camera, CameraType, CameraView } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { getHaircutRecommendations } from '../../services/facefitService';
 
 const { width } = Dimensions.get('window');
 
@@ -25,22 +27,14 @@ const AI_STEPS = [
   'Generating recommendations…',
 ];
 
-const RESULT_MOCK = {
-  faceShape: 'Oval',
-  confidence: 91,
-  landmarks: 468,
-  hairType: 'Straight',
-  scalpCondition: 'Healthy',
-  topMatches: ['Classic Taper Fade', 'Textured Quiff', 'Side Part Undercut'],
-};
-
 export default function ScanScreen() {
   const router = useRouter();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [cameraType, setCameraType] = useState<CameraType>('front');
   const [step, setStep] = useState<ScanStep>('idle');
   const [currentAiStep, setCurrentAiStep] = useState(0);
-  const [result, setResult] = useState<typeof RESULT_MOCK | null>(null);
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -49,7 +43,7 @@ export default function ScanScreen() {
     })();
   }, []);
 
-  const startScan = () => {
+  const startScan = async () => {
     if (hasPermission === false) {
       Alert.alert('Camera permission denied', 'Enable camera access in your device settings to scan your face.');
       return;
@@ -57,6 +51,7 @@ export default function ScanScreen() {
 
     setStep('analyzing');
     setCurrentAiStep(0);
+    setLoading(true);
 
     AI_STEPS.forEach((_, index) =>
       setTimeout(() => {
@@ -64,16 +59,29 @@ export default function ScanScreen() {
       }, index * 900)
     );
 
-    setTimeout(() => {
-      setResult(RESULT_MOCK);
+    try {
+      const data = await getHaircutRecommendations('Oval', 'Straight', 'Unisex');
+      setResult({
+        faceShape: data.faceShape || 'Oval',
+        confidence: 92,
+        landmarks: 468,
+        hairType: data.hairType || 'Straight',
+        scalpCondition: 'Healthy',
+        recommendations: data.recommendations || [],
+      });
+    } catch (error) {
+      Alert.alert('Recommendation failed', 'Unable to load haircut suggestions from the database.');
+    } finally {
+      setLoading(false);
       setStep('done');
-    }, AI_STEPS.length * 900 + 300);
+    }
   };
 
   const reset = () => {
     setStep('idle');
     setResult(null);
     setCurrentAiStep(0);
+    setLoading(false);
   };
 
   return (
@@ -136,7 +144,7 @@ export default function ScanScreen() {
             <>
               <TouchableOpacity
                 style={styles.primaryBtn}
-                onPress={() => router.push({ pathname: '/recommendations' })}
+                onPress={() => router.push({ pathname: '/recommendations', params: { result: JSON.stringify(result) } })}
                 activeOpacity={0.85}
               >
                 <Ionicons name="sparkles" size={18} color="#0F0F0F" style={{ marginRight: 8 }} />
@@ -173,17 +181,24 @@ export default function ScanScreen() {
         {step === 'done' && result && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Top Hairstyle Matches</Text>
-            {result.topMatches.map((match, index) => (
-              <View key={match} style={styles.matchRow}>
+            {result.recommendations.map((item: any, index: number) => (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.matchRow}
+                onPress={() => router.push({ pathname: '/recommendations', params: { result: JSON.stringify(result), selectedHaircut: item.name } })}
+              >
                 <View style={styles.matchRank}>
                   <Text style={styles.matchRankText}>#{index + 1}</Text>
                 </View>
                 <View style={styles.matchIcon}>
                   <Ionicons name="cut" size={18} color="#C9A96E" />
                 </View>
-                <Text style={styles.matchName}>{match}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.matchName}>{item.name}</Text>
+                  <Text style={styles.matchMeta}>{item.matchPercentage}% fit · {item.category}</Text>
+                </View>
                 <Ionicons name="chevron-forward" size={16} color="#555" />
-              </View>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -276,6 +291,7 @@ const styles = StyleSheet.create({
   matchRankText: { fontSize: 11, fontWeight: '700', color: '#C9A96E' },
   matchIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#2A1F10', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   matchName: { flex: 1, fontSize: 14, fontWeight: '600', color: '#F5F0E8' },
+  matchMeta: { fontSize: 12, color: '#888', marginTop: 4 },
   tipRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   tipIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: '#2A1F10', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   tipText: { fontSize: 13, color: '#AAA', flex: 1 },

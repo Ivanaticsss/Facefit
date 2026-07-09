@@ -1,5 +1,5 @@
-import { Platform } from 'react-native';
-import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
+import api from '../api/axiosConfig';
 
 export type UserRole = 'admin' | 'user' | 'hairstylist';
 
@@ -10,27 +10,6 @@ export type AuthUser = {
   email: string;
   role: UserRole;
 };
-
-function getApiHost() {
-  const debuggerHost = Constants.manifest?.debuggerHost as string | undefined;
-  if (debuggerHost) {
-    return debuggerHost.split(':')[0];
-  }
-
-  return '192.168.50.164';
-}
-
-const API_BASE_URL = `http://${getApiHost()}/facefit`;
-
-function parseApiResponse(response: Response) {
-  return response.text().then((text) => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return { success: false, message: text };
-    }
-  });
-}
 
 export function resolveRole(username: string): UserRole {
   const normalized = username.trim().toLowerCase();
@@ -46,60 +25,84 @@ export function resolveRole(username: string): UserRole {
   return 'user';
 }
 
-function buildFormBody(params: Record<string, string>) {
-  return Object.entries(params)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join('&');
+const SESSION_KEY = 'facefit-session';
+
+export async function saveSession(user: AuthUser) {
+  await SecureStore.setItemAsync(SESSION_KEY, JSON.stringify(user));
 }
 
-export async function loginUser(username: string, password: string) {
-  const body = buildFormBody({ username, password });
-
-  const response = await fetch(`${API_BASE_URL}/login.php`, {
-    method: 'POST',
-    body,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-    },
-  });
-
-  const result = await parseApiResponse(response);
-
-  if (response.ok && result.success) {
-    return { success: true, role: result.role ?? resolveRole(username) };
-  }
-
-  return { success: false, message: result.message || 'Unable to log in' };
-}
-
-export async function registerUser(fullName: string, email: string, username: string, password: string) {
-  const body = buildFormBody({ full_name: fullName, email, username, password });
-
-  const response = await fetch(`${API_BASE_URL}/register.php`, {
-    method: 'POST',
-    body,
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-    },
-  });
-
-  const result = await parseApiResponse(response);
-  return { success: response.ok && result.success, message: result.message || 'Unable to create account' };
-}
-
-export async function getCurrentUser() {
-  const response = await fetch(`${API_BASE_URL}/dashboard.php`, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-
-  if (!response.ok) {
+export async function getStoredSession() {
+  const raw = await SecureStore.getItemAsync(SESSION_KEY);
+  if (!raw) {
     return null;
   }
 
-  return response.json();
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearSession() {
+  await SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+export async function loginUser(username: string, password: string, requestedRole?: UserRole) {
+  try {
+    const response = await api.post('/login', { username, password });
+
+    if (response.data?.success) {
+      const user = response.data.user as AuthUser | undefined;
+      const actualRole = (user?.role as UserRole | undefined) ?? resolveRole(username);
+
+      if (requestedRole && requestedRole !== actualRole) {
+        return {
+          success: false,
+          message: `This account is registered as ${actualRole} and cannot sign in as ${requestedRole}.`,
+          role: actualRole,
+          user,
+        };
+      }
+
+      if (user) {
+        await saveSession(user);
+      }
+
+      return {
+        success: true,
+        role: actualRole,
+        user,
+      };
+    }
+
+    return { success: false, message: response.data?.message || 'Unable to log in' };
+  } catch (error: any) {
+    const message = error?.response?.data?.message || error?.message || 'Network error';
+    return { success: false, message };
+  }
+}
+
+export async function registerUser(fullName: string, email: string, username: string, password: string, role: UserRole = 'user') {
+  try {
+    const response = await api.post('/register', { full_name: fullName, email, username, password, role });
+
+    return {
+      success: response.data?.success,
+      message: response.data?.message || 'Unable to create account',
+    };
+  } catch (error: any) {
+    const message = error?.response?.data?.message || error?.message || 'Network error';
+    return { success: false, message };
+  }
+}
+
+export async function getCurrentUser() {
+  try {
+    const response = await api.get('/users');
+    return response.data;
+  } catch (error) {
+    console.error('❌ Network error:', error);
+    return null;
+  }
 }

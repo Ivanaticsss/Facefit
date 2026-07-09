@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,13 @@ import {
   StatusBar,
   Dimensions,
   Switch,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams } from 'expo-router';
-import { type UserRole } from '../../services/authService';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { clearSession, getStoredSession, type AuthUser, type UserRole } from '../../services/authService';
+import { getUserScans, getUserSavedStyles, getUserBookings } from '../../services/facefitService';
 
 const { width } = Dimensions.get('window');
 
@@ -22,20 +24,11 @@ const HAIR_HISTORY = [
   { date: 'Mar 20, 2026', style: 'French Crop', salon: 'Craft & Blade', rating: 5, icon: '🗼' },
 ];
 
-const PROFILE = {
-  name: 'Juan dela Cruz',
-  email: 'juan@email.com',
-  faceShape: 'Oval',
-  hairType: 'Straight',
-  hairTexture: 'Fine',
-  scalpCondition: 'Healthy',
-  skinTone: 'Medium',
-  eyeColor: 'Brown',
-  bodyType: 'Average',
-  totalScans: 7,
-  savedStyles: 4,
-  bookings: 3,
-};
+const mockHistory = [
+  { date: 'Jun 14, 2026', style: 'Classic Taper Fade', salon: 'Craft & Blade', rating: 5, icon: '💈' },
+  { date: 'May 2, 2026', style: 'Textured Quiff', salon: 'Styled by Ana', rating: 4, icon: '✨' },
+  { date: 'Mar 20, 2026', style: 'French Crop', salon: 'Craft & Blade', rating: 5, icon: '🗼' },
+];
 
 const SETTINGS = [
   { icon: 'notifications-outline', label: 'Notifications', hasSwitch: true },
@@ -47,10 +40,61 @@ const SETTINGS = [
 ];
 
 export default function ProfileScreen() {
-  const params = useLocalSearchParams<{ role?: string }>();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ role?: string; tab?: string }>();
   const role = (params.role as UserRole | undefined) ?? 'user';
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [notifEnabled, setNotifEnabled] = useState(true);
+  const [scans, setScans] = useState<Array<any>>([]);
+  const [saved, setSaved] = useState<Array<any>>([]);
+  const [bookings, setBookings] = useState<Array<any>>([]);
   const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'settings'>('profile');
+
+  useEffect(() => {
+    const load = async () => {
+      const stored = await getStoredSession();
+      setUser(stored);
+      if (params.tab === 'settings') {
+        setActiveTab('settings');
+      }
+      if (stored?.id) {
+        try {
+          const [uScans, uSaved, uBookings] = await Promise.all([
+            getUserScans(stored.id),
+            getUserSavedStyles(stored.id),
+            getUserBookings(stored.id),
+          ]);
+          setScans(uScans || []);
+          setSaved(uSaved || []);
+          setBookings(uBookings || []);
+        } catch (e) {
+          console.error('Failed to load user lists', e);
+        }
+      }
+    };
+
+    load();
+  }, [params.tab]);
+
+  const totals = useMemo(() => ({
+    totalScans: mockHistory.length + 2,
+    savedStyles: 4,
+    bookings: 3,
+  }), []);
+
+  const handleLogout = () => {
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          await clearSession();
+          router.replace('/(auth)/login');
+        },
+      },
+    ]);
+  };
 
   return (
     <View style={styles.container}>
@@ -64,14 +108,14 @@ export default function ProfileScreen() {
               <Ionicons name="person" size={42} color="#C9A96E" />
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>{PROFILE.name}</Text>
-              <Text style={styles.userEmail}>{PROFILE.email}</Text>
+              <Text style={styles.userName}>{user?.full_name || 'FaceFit User'}</Text>
+              <Text style={styles.userEmail}>{user?.email || 'Signed in'}</Text>
               <View style={styles.roleBadge}>
                 <Text style={styles.roleBadgeText}>{role.toUpperCase()}</Text>
               </View>
               <View style={styles.faceShapeTag}>
                 <Ionicons name="scan-outline" size={12} color="#C9A96E" style={{ marginRight: 4 }} />
-                <Text style={styles.faceShapeTagText}>{PROFILE.faceShape} Face · {PROFILE.hairType} Hair</Text>
+                <Text style={styles.faceShapeTagText}>Oval Face · Straight Hair</Text>
               </View>
             </View>
             <TouchableOpacity style={styles.editBtn}>
@@ -82,9 +126,9 @@ export default function ProfileScreen() {
           {/* Stats */}
           <View style={styles.statsRow}>
             {[
-              { value: PROFILE.totalScans, label: 'Scans' },
-              { value: PROFILE.savedStyles, label: 'Saved' },
-              { value: PROFILE.bookings, label: 'Bookings' },
+              { value: totals.totalScans, label: 'Scans' },
+              { value: totals.savedStyles, label: 'Saved' },
+              { value: totals.bookings, label: 'Bookings' },
             ].map((stat) => (
               <View key={stat.label} style={styles.statItem}>
                 <Text style={styles.statValue}>{stat.value}</Text>
@@ -115,12 +159,12 @@ export default function ProfileScreen() {
             <Text style={styles.sectionTitle}>Physical Profile</Text>
             <View style={styles.profileGrid}>
               {[
-                { label: 'Face Shape', value: PROFILE.faceShape, icon: 'person-outline' },
-                { label: 'Hair Type', value: PROFILE.hairType, icon: 'cut-outline' },
-                { label: 'Hair Texture', value: PROFILE.hairTexture, icon: 'layers-outline' },
-                { label: 'Scalp', value: PROFILE.scalpCondition, icon: 'leaf-outline' },
-                { label: 'Skin Tone', value: PROFILE.skinTone, icon: 'color-palette-outline' },
-                { label: 'Eye Color', value: PROFILE.eyeColor, icon: 'eye-outline' },
+                { label: 'Face Shape', value: 'Oval', icon: 'person-outline' },
+                { label: 'Hair Type', value: 'Straight', icon: 'cut-outline' },
+                { label: 'Hair Texture', value: 'Fine', icon: 'layers-outline' },
+                { label: 'Scalp', value: 'Healthy', icon: 'leaf-outline' },
+                { label: 'Skin Tone', value: 'Medium', icon: 'color-palette-outline' },
+                { label: 'Eye Color', value: 'Brown', icon: 'eye-outline' },
               ].map((item) => (
                 <View key={item.label} style={styles.profileCard}>
                   <Ionicons name={item.icon as any} size={18} color="#C9A96E" style={{ marginBottom: 6 }} />
@@ -161,6 +205,20 @@ export default function ProfileScreen() {
                 </View>
               ))}
             </View>
+
+            <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Saved Styles</Text>
+            {saved.length === 0 ? (
+              <Text style={styles.emptyText}>No saved styles yet.</Text>
+            ) : (
+              saved.map((s) => (
+                <View key={s.id} style={styles.historyCard}>
+                  <View style={styles.historyInfo}>
+                    <Text style={styles.historyStyle}>{s.haircut_name || 'Style'}</Text>
+                    <Text style={styles.historyDate}>{new Date(s.created_at).toLocaleDateString()}</Text>
+                  </View>
+                </View>
+              ))
+            )}
           </View>
         )}
 
@@ -168,23 +226,25 @@ export default function ProfileScreen() {
         {activeTab === 'history' && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Hair History</Text>
-            {HAIR_HISTORY.map((item, i) => (
-              <View key={i} style={styles.historyCard}>
-                <View style={styles.historyIcon}>
-                  <Text style={{ fontSize: 24 }}>{item.icon}</Text>
+            {scans.length === 0 ? (
+              <Text style={styles.emptyText}>No scans yet.</Text>
+            ) : (
+              scans.map((item: any) => (
+                <View key={item.id} style={styles.historyCard}>
+                  <View style={styles.historyIcon}>
+                    <Text style={{ fontSize: 24 }}>💈</Text>
+                  </View>
+                  <View style={styles.historyInfo}>
+                    <Text style={styles.historyStyle}>{item.haircut_name || 'Scan result'}</Text>
+                    <Text style={styles.historySalon}>{item.face_shape} · {item.hair_type}</Text>
+                    <Text style={styles.historyDate}>{new Date(item.created_at).toLocaleString()}</Text>
+                  </View>
+                  <View style={styles.historyRating}>
+                    <Text style={{ color: '#C9A96E', fontWeight: '700' }}>{item.match_percentage ?? '-' }%</Text>
+                  </View>
                 </View>
-                <View style={styles.historyInfo}>
-                  <Text style={styles.historyStyle}>{item.style}</Text>
-                  <Text style={styles.historySalon}>{item.salon}</Text>
-                  <Text style={styles.historyDate}>{item.date}</Text>
-                </View>
-                <View style={styles.historyRating}>
-                  {Array.from({ length: 5 }).map((_, s) => (
-                    <Ionicons key={s} name="star" size={12} color={s < item.rating ? '#C9A96E' : '#333'} />
-                  ))}
-                </View>
-              </View>
-            ))}
+              ))
+            )}
 
             <Text style={styles.sectionTitle}>AI Consent & Privacy</Text>
             <View style={styles.consentCard}>
@@ -214,10 +274,15 @@ export default function ProfileScreen() {
         {/* Settings Tab */}
         {activeTab === 'settings' && (
           <View style={styles.section}>
-            {SETTINGS.map((setting, i) => (
+            {SETTINGS.map((setting) => (
               <TouchableOpacity
                 key={setting.label}
                 style={[styles.settingRow, setting.danger && styles.settingRowDanger]}
+                onPress={() => {
+                  if (setting.label === 'Sign Out') {
+                    handleLogout();
+                  }
+                }}
               >
                 <View style={[styles.settingIcon, setting.danger && styles.settingIconDanger]}>
                   <Ionicons
@@ -289,6 +354,7 @@ const styles = StyleSheet.create({
   // Section
   section: { paddingHorizontal: 20 },
   sectionTitle: { fontSize: 17, fontWeight: '700', color: '#F5F0E8', marginBottom: 14, letterSpacing: -0.3 },
+  emptyText: { color: '#888', fontSize: 13, textAlign: 'center', marginVertical: 18 },
 
   // Profile Grid
   profileGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 28 },
